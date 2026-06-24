@@ -1,0 +1,116 @@
+-- ========================================================
+-- CRIAÇÃO DO BANCO DE DADOS
+-- ========================================================
+CREATE DATABASE IF NOT EXISTS securtech;
+USE securtech;
+
+-- ========================================================
+-- ESTUTURA DAS TABELAS (DDL)
+-- ========================================================
+
+-- TABELA NIVEIS
+CREATE TABLE NIVEIS (
+    id_cargo INT PRIMARY KEY AUTO_INCREMENT,
+    cargo VARCHAR(100) NOT NULL
+);
+
+-- TABELA SETORES
+CREATE TABLE SETORES (
+    id_setor INT PRIMARY KEY AUTO_INCREMENT,
+    nome_setor VARCHAR(100) NOT NULL
+);
+
+-- TABELA COLABORADORES
+CREATE TABLE COLABORADORES (
+    id_colab INT PRIMARY KEY AUTO_INCREMENT,
+    nome_colab VARCHAR(150) NOT NULL,
+    usuario VARCHAR(50) NOT NULL UNIQUE,
+    senha VARCHAR(255) NOT NULL,
+    id_cargo INT,
+    id_setor INT,
+    FOREIGN KEY (id_cargo) REFERENCES NIVEIS(id_cargo),
+    FOREIGN KEY (id_setor) REFERENCES SETORES(id_setor)
+);
+
+-- TABELA CAMERAS
+CREATE TABLE CAMERAS (
+    id_cam INT PRIMARY KEY AUTO_INCREMENT,
+    setor_cam VARCHAR(100),
+    status_cam VARCHAR(50),
+    estacao VARCHAR(100)
+);
+
+-- TABELA ALERTAS
+CREATE TABLE ALERTAS (
+    id_alerta INT PRIMARY KEY AUTO_INCREMENT,
+    id_colab INT, -- FK para identificar o colaborador e permitir buscar o nome
+    id_cam INT,   -- FK para buscar os dados da câmera
+    Status_EPI VARCHAR(100),
+    Status_maq VARCHAR(100),
+    data_hora DATETIME,
+    FOREIGN KEY (id_colab) REFERENCES COLABORADORES(id_colab),
+    FOREIGN KEY (id_cam) REFERENCES CAMERAS(id_cam)
+);
+
+-- TABELA ESTACAO
+CREATE TABLE ESTACAO (
+    id_estacao INT PRIMARY KEY AUTO_INCREMENT,
+    id_setor INT,
+    id_cam INT,
+    Nome_estacao VARCHAR(100),
+    FOREIGN KEY (id_setor) REFERENCES SETORES(id_setor),
+    FOREIGN KEY (id_cam) REFERENCES CAMERAS(id_cam)
+);
+
+
+-- ========================================================
+-- POPULANDO O BANCO DE DADOS (DML)
+-- ========================================================
+
+-- 1. NÍVEIS DE ACESSO
+INSERT INTO NIVEIS (cargo) VALUES 
+('Supervisor'),
+('Operador'),
+('Administrador');
+
+-- 2. SETORES DA EMPRESA
+INSERT INTO SETORES (nome_setor) VALUES 
+('Linha de Montagem A'),
+('Estamparia'),
+('Almoxarifado'),
+('Fundição'),
+('Expedição');
+
+-- 3. COLABORADORES (Usuários para a tela de login)
+INSERT INTO COLABORADORES (nome_colab, usuario, senha, id_cargo, id_setor) VALUES 
+-- Supervisores (Redirecionam para dashboard.php)
+('Carlos Andrade', 'carlos.super', '123456', 1, 1),
+('Matheus Silva', '20001', 'senha123', 1, 2),
+
+-- Operadores (Redirecionam para operador.php)
+('João Souza', '10234', 'operador1', 2, 1),
+('Ana Beatriz', 'ana.op', 'abcde', 2, 2),
+('Marcos Lima', 'marcos.op', '987654', 2, 3);
+
+-- 4. CÂMERAS DE MONITORAMENTO
+INSERT INTO CAMERAS (setor_cam, status_cam, estacao) VALUES 
+('Linha de Montagem A', 'Ativa', 'Estação 01'),
+('Linha de Montagem A', 'Ativa', 'Estação 02'),
+('Estamparia', 'Ativa', 'Estação 03'),
+('Fundição', 'Manutenção', 'Estação 04'),
+('Almoxarifado', 'Ativa', 'Estação 05');
+
+-- 5. ESTAÇÕES DE TRABALHO
+INSERT INTO ESTACAO (id_setor, id_cam, Nome_estacao) VALUES 
+(1, 1, 'Estação de Solda 01'),
+(1, 2, 'Estação de Montagem 02'),
+(2, 3, 'Prensa Hidráulica 01'),
+(4, 4, 'Forno Principal 01'),
+(3, 5, 'Recebimento de Cargas');
+
+-- 6. HISTÓRICO DE ALERTAS (EPIs e Máquinas)
+INSERT INTO ALERTAS (id_colab, id_cam, Status_EPI, Status_maq, data_hora) VALUES 
+(3, 1, 'Ausência de Óculos de Proteção', 'Operação Normal', '2026-05-28 08:30:00'),
+(4, 3, 'Uso Correto', 'Anormalidade - Superaquecimento', '2026-05-28 10:15:22'),
+(5, 5, 'Ausência de Capacete', 'Operação Normal', '2026-05-28 14:45:10'),
+(3, 2, 'Ausência de Protetor Auricular', 'Operação Normal', '2026-05-28 16:22:05');

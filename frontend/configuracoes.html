@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Configurações — EPI Guardian</title>
+    <link rel="stylesheet" href="css/styles.css"/>
+</head>
+<body>
+<div data-layout="supervisor" data-active="configuracoes"></div>
+
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/realtime.js"></script>
+<script src="js/layout.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    
+    // Varre a DOM dinamicamente até achar o contêiner gerado pelo layout.js
+    const checarContainer = setInterval(async () => {
+        const root = document.getElementById("page-content"); 
+        
+        if (root) {
+            clearInterval(checarContainer); 
+            
+            // Requisição segura para buscar as tabelas reais do banco (Ajustado para ../)
+            async function loadData() {
+                try {
+                    const response = await fetch("../backend/configuracoes_api.php");
+                    const result = await response.json();
+                    if (!result.success) throw new Error(result.error);
+                    return result;
+                } catch (err) {
+                    // Exibe o erro diretamente na tela caso o banco ou o JSON falhem
+                    root.innerHTML = `
+                        <div class="card" style="border-left: 5px solid #e74c3c;">
+                            <h3 style="color:#e74c3c;">⚠️ Erro de Integração com o Banco</h3>
+                            <p>Não foi possível ler as tabelas do banco <code>securtech</code>.</p>
+                            <p style="background:#f9f9f9; padding:10px; border:1px solid #eee; font-family:monospace; font-size:0.9rem;">
+                                Detalhes: ${err.message}
+                            </p>
+                            <button class="btn primary" onclick="window.location.reload()">🔄 Tentar Novamente</button>
+                        </div>`;
+                    return null;
+                }
+            }
+
+            const data = await loadData();
+            if (!data) return; // Aborta a renderização se houver falhas no banco
+
+            // Cria a interface limpa, com o Slider estilo controle de áudio até 2 minutos (120s)
+            root.innerHTML = `
+                <div class="card">
+                    <h3>Tempo de Pausa Segura</h3>
+                    <div class="field" style="margin: 25px 0;">
+                        <label style="display:block; margin-bottom:12px; font-weight:bold; font-size:1rem;">
+                            Tempo limite selecionado: <span id="pauseVal" style="color:#2980b9; font-size:1.3rem; font-family:monospace;">${data.pauseSeconds}</span> segundos
+                        </label>
+                        <input type="range" id="pause" min="5" max="120" value="${data.pauseSeconds}" 
+                               style="width: 100%; height: 8px; background: #dfe6e9; border-radius: 5px; accent-color: #2980b9; cursor: pointer; outline: none;"/>
+                        <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#7f8c8d; margin-top:6px; font-weight:600;">
+                            <span>5 segundos</span>
+                            <span>2 minutos (120s)</span>
+                        </div>
+                    </div>
+                    <button class="btn primary" id="btnSave">💾 Salvar Configuração</button>
+                </div>
+
+                <div class="card">
+                    <div class="flex-between">
+                        <h3 style="margin:0">Funcionários Cadastrados</h3>
+                        <button class="btn ghost" id="btnAddUser">+ Adicionar Funcionário</button>
+                    </div>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Matrícula / Login</th>
+                                <th>Nome do Colaborador</th>
+                                <th>Cargo</th>
+                                <th>Setor Alocado</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="empRows"></tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <div class="flex-between">
+                        <h3 style="margin:0">Estações Cadastradas</h3>
+                        <button class="btn ghost" id="btnAddStation" style="color:#27ae60; border-color:#27ae60;">+ Adicionar Estação</button>
+                    </div>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Nome da Estação</th>
+                                <th>Setor Físico</th>
+                                <th>Vínculo de Mídia</th>
+                                <th>Status da Câmera</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stRows"></tbody>
+                    </table>
+                </div>`;
+
+            const empRows = document.getElementById("empRows");
+            const stRows = document.getElementById("stRows");
+            const pauseInput = document.getElementById("pause");
+            const pauseVal = document.getElementById("pauseVal");
+
+            // Efeito em tempo real ao arrastar a bolinha do Slider (estilo controle de som)
+            pauseInput.oninput = () => {
+                pauseVal.textContent = pauseInput.value;
+            };
+
+            // Métodos dinâmicos de impressão de linhas baseados no retorno real do PDO
+            function renderEmployees(list) {
+                if(list.length === 0) {
+                    empRows.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#888;">Nenhum funcionário encontrado no banco.</td></tr>`;
+                    return;
+                }
+                empRows.innerHTML = list.map(e => `
+                    <tr>
+                        <td style="font-family:monospace; font-weight:bold;">${e.usuario}</td>
+                        <td>${e.nome_colab}</td>
+                        <td><span class="tag role">${e.cargo || 'Operador'}</span></td>
+                        <td>${e.nome_setor || 'Geral'}</td>
+                        <td><button class="btn ghost" onclick="delEmp('${e.id_colab}')" style="color:#e74c3c;">🗑</button></td>
+                    </tr>`).join("");
+            }
+
+            // Renderiza as estações respeitando as maiúsculas do seu banco (Nome_estacao)
+            function renderStations(list) {
+                if(list.length === 0) {
+                    stRows.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#888;">Nenhuma estação cadastrada no banco.</td></tr>`;
+                    return;
+                }
+                stRows.innerHTML = list.map(s => {
+                    const status = s.status_cam || 'Inativa';
+                    const badgeClass = status === 'Ativa' ? 'success' : 'warning';
+                    return `
+                        <tr>
+                            <td><b>${s.Nome_estacao}</b></td>
+                            <td>${s.nome_setor || 'Geral'}</td>
+                            <td>Câmera ID: ${s.id_cam || 'Nenhuma'}</td>
+                            <td><span class="badge ${badgeClass}">${status}</span></td>
+                        </tr>`;
+                }).join("");
+            }
+
+            // Exibe os registros iniciais buscados do DDL populado
+            renderEmployees(data.employees);
+            renderStations(data.stations);
+
+            // POST: Salvar o estado do Slider de Pausa (Ajustado para ../)
+            document.getElementById("btnSave").onclick = async () => {
+                const res = await fetch("../backend/configuracoes_api.php", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ acao: "salvar_pausa", pauseSeconds: pauseInput.value })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    if (typeof toast === "function") toast("Configurações salvas", result.message, "success");
+                    else alert(result.message);
+                } else {
+                    alert("Erro ao salvar: " + result.error);
+                }
+            };
+
+            // POST: Adicionar Funcionário via Prompt (Ajustado para ../)
+            document.getElementById("btnAddUser").onclick = async () => {
+                const name = prompt("Nome completo do funcionário:"); if (!name) return;
+                const matricula = prompt("Usuário de login (Ex: 10234):"); if (!matricula) return;
+
+                const res = await fetch("../backend/configuracoes_api.php", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ acao: "adicionar_funcionario", nome: name, matricula: matricula })
+                });
+                
+                const result = await res.json();
+                if (result.success) {
+                    const update = await loadData();
+                    if(update) renderEmployees(update.employees);
+                } else {
+                    alert("Erro: " + result.error);
+                }
+            };
+
+            // POST: Deletar Colaborador do Banco (Ajustado para ../)
+            window.delEmp = async (id) => {
+                if (!confirm("Deseja deletar este colaborador permanentemente do banco securtech?")) return;
+
+                const res = await fetch("../backend/configuracoes_api.php", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ acao: "deletar_funcionario", id_colab: id })
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                    const update = await loadData();
+                    if(update) renderEmployees(update.employees);
+                } else {
+                    alert("Erro ao deletar: " + result.error);
+                }
+            };
+
+            // POST: Adicionar Nova Estação de Trabalho via Prompt JavaScript (Ajustado para ../)
+            document.getElementById("btnAddStation").onclick = async () => {
+                const stationName = prompt("Nomenclatura da Nova Estação (Ex: Prensa Hidráulica 02):");
+                if (!stationName) return;
+
+                const res = await fetch("../backend/configuracoes_api.php", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ acao: "adicionar_estacao", nome_estacao: stationName })
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                    const update = await loadData();
+                    if(update) renderStations(update.stations);
+                } else {
+                    alert("Erro ao cadastrar estação: " + result.error);
+                }
+            };
+        }
+    }, 100);
+});
+</script>
+</body>
+</html>

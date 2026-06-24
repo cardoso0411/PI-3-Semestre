@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Operador — EPI Guardian</title>
+<link rel="stylesheet" href="css/styles.css"/>
+</head>
+<body>
+<div data-layout="operador" data-active="operador"></div>
+<script src="js/mock-data.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/realtime.js"></script>
+<script src="js/layout.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const root = document.getElementById("page-content"); if (!root) return;
+  const u = AUTH.user;
+  root.innerHTML = `<div id="stage" class="op-stage"><div class="panel">
+    <div class="icon" id="opIcon">⏳</div>
+    <h1 id="opTitle">Carregando…</h1>
+    <p id="opMsg">Aguardando leitura da câmera</p>
+    <hr/>
+    <div class="row" style="justify-content:center">
+      <div><div class="muted">Operador</div><b>${u.name}</b></div>
+      <div><div class="muted">Matrícula</div><b style="font-family:monospace">${u.matricula}</b></div>
+      <div><div class="muted">Setor</div><b>${u.sector}</b></div>
+    </div>
+  </div></div>`;
+
+  REALTIME.subscribe((stations) => {
+    const st = stations.find(s => s.employeeId && findEmployee(s.employeeId)?.matricula === u.matricula) || stations[0];
+    if (!st) return;
+    const stage = document.getElementById("stage");
+    stage.className = "op-stage " + (st.epiStatus==="violation"?"bad":st.epiStatus==="compliant"?"ok":"");
+    if (st.epiStatus === "compliant") {
+      opIcon.textContent = "✅"; opTitle.textContent = "EPI OK — Máquina liberada";
+      opMsg.textContent = `Confiança IA: ${(st.aiConfidence*100).toFixed(0)}% • ${st.name}`;
+    } else if (st.epiStatus === "violation") {
+      opIcon.textContent = "🚨"; opTitle.textContent = "ALERTA — Coloque seu EPI";
+      opMsg.textContent = `Máquina BLOQUEADA • ${st.name}`;
+    } else if (st.epiStatus === "paused") {
+      opIcon.textContent = "⏸"; opTitle.textContent = "Pausa Segura";
+      opMsg.textContent = `Aguarde liberação • ${st.name}`;
+    } else { opIcon.textContent = "⚫"; opTitle.textContent = "Estação offline"; opMsg.textContent = st.name; }
+  });
+  REALTIME.start();
+});
+</script>
+</body>
+</html>

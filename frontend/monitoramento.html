@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Monitoramento — EPI Guardian</title>
+
+<link rel="stylesheet" href="css/styles.css"/>
+
+<style>
+.camera{
+  position:relative;
+  width:100%;
+  min-height:500px;
+  background:#000;
+  border-radius:12px;
+  overflow:hidden;
+}
+
+.camera img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+.placeholder{
+  width:100%;
+  height:500px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  color:white;
+  background:#111;
+}
+
+.hud{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+}
+
+.rec{
+  position:absolute;
+  top:12px;
+  left:12px;
+  background:red;
+  color:white;
+  padding:6px 10px;
+  border-radius:6px;
+  font-size:12px;
+  font-weight:bold;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.blink{
+  width:8px;
+  height:8px;
+  background:white;
+  border-radius:50%;
+  animation:blink 1s infinite;
+}
+
+@keyframes blink{
+  50%{ opacity:0; }
+}
+
+.clock{
+  position:absolute;
+  top:12px;
+  right:12px;
+  background:rgba(0,0,0,.6);
+  color:white;
+  padding:6px 10px;
+  border-radius:6px;
+  font-family:monospace;
+}
+
+.yolo{
+  position:absolute;
+  bottom:12px;
+  left:12px;
+  background:rgba(0,0,0,.6);
+  color:white;
+  padding:6px 10px;
+  border-radius:6px;
+}
+
+.stat{
+  position:absolute;
+  bottom:12px;
+  right:12px;
+}
+
+.camera-bar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+
+.ctrls{
+  display:flex;
+  gap:8px;
+}
+</style>
+</head>
+
+<body>
+
+<div data-layout="supervisor" data-active="monitoramento"></div>
+
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+
+<script>
+// Função de Fallback para criar as badges de status caso não exista uma global
+function getLocalBadge(status) {
+    if (typeof statusBadge === "function") return statusBadge(status);
+    const labels = { compliant: "Conforme", violation: "VIOLAÇÃO", paused: "PAUSA", offline: "OFFLINE" };
+    return `<span class="badge ${status}">${labels[status] || status}</span>`;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const root = document.getElementById("page-content");
+  if (!root) return;
+
+  // Injeção do HTML Estrutural na Página
+  root.innerHTML = `
+    <div class="card">
+      <div class="camera-bar">
+        <div class="row">
+          <b>📹 Câmera ao vivo</b>
+          <span id="conn" class="muted" style="font-size:12px">● Conectando…</span>
+        </div>
+        <div class="row">
+          <select id="camSelect" style="width:260px"></select>
+          <div class="ctrls">
+            <button class="btn ghost" id="btnPlay">⏸</button>
+            <button class="btn ghost" id="btnRefresh">⟳</button>
+            <button class="btn ghost" id="btnFs">⛶</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="camera" id="cameraBox">
+        <img id="camVideo" src="" alt="YOLO Stream" style="display:none" />
+        <div class="placeholder" id="camPlaceholder">
+          <div>
+            <div style="font-size:42px">📷</div>
+            <div>Aguardando stream do backend Python</div>
+            <div style="font-family:monospace; font-size:12px; margin-top:4px" id="camUrl"></div>
+          </div>
+        </div>
+
+        <div class="hud">
+          <div class="rec"><span class="blink"></span>REC</div>
+          <div class="clock" id="camClock">--:--:--</div>
+          <div class="yolo" id="camYolo">YOLOv8 · -- %</div>
+          <div class="stat" id="camStat"></div>
+        </div>
+      </div>
+
+      <div class="grid cols-4" id="camInfo" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <input id="searchInput" placeholder="🔍 buscar estação…" style="max-width:260px" />
+        <select id="sectorFilter" style="max-width:200px">
+          <option value="">Todos setores</option>
+        </select>
+        <select id="statusFilter" style="max-width:200px">
+          <option value="">Todos status</option>
+          <option value="compliant">Conforme</option>
+          <option value="violation">Violação</option>
+          <option value="paused">Pausa</option>
+          <option value="offline">Offline</option>
+        </select>
+      </div>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Estação</th>
+            <th>Setor</th>
+            <th>Operador</th>
+            <th>Status</th>
+            <th>Confiança</th>
+            <th>Máquina</th>
+          </tr>
+        </thead>
+        <tbody id="stTable"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 10px">Eventos ao vivo</h3>
+      <div id="eventList" style="max-height:340px;overflow:auto"></div>
+    </div>
+  `;
+
+  // RELÓGIO DO HUD
+  setInterval(() => {
+    document.getElementById("camClock").textContent = new Date().toLocaleTimeString("pt-BR");
+  }, 1000);
+
+  // Variáveis de Estado Local da Aplicação
+  let GlobalCache = { stations: [], events: [] };
+  let currentCamId = null;
+  let playing = true;
+
+  // ATUALIZA A EXIBIÇÃO DA CÂMERA SELECIONADA
+  function renderSelectedCamera() {
+    const stations = GlobalCache.stations;
+    if (!stations.length) return;
+
+    // Busca comparando estritamente como String para evitar incompatibilidades de tipo
+    let s = stations.find(x => String(x.id) === String(currentCamId));
+    if (!s) {
+      s = stations[0];
+      currentCamId = s.id;
+    }
+
+    // Configura a URL visível no painel informando o caminho do feed
+    const targetStream = s.cameraUrl || "http://localhost:5000/video_feed";
+    document.getElementById("camUrl").textContent = targetStream;
+    document.getElementById("camYolo").textContent = `YOLOv8 · ${(s.aiConfidence * 100).toFixed(0)}% confiança`;
+    document.getElementById("camStat").innerHTML = getLocalBadge(s.epiStatus);
+
+    // Renderiza os Cards de Informação Técnicos abaixo do vídeo
+    document.getElementById("camInfo").innerHTML = `
+      <div class="card">
+        <div class="muted">Operador</div>
+        <b>${s.employeeName || "Não Identificado"}</b>
+      </div>
+      <div class="card">
+        <div class="muted">Matrícula</div>
+        <b style="font-family:monospace">${s.employeeMatricula || "—"}</b>
+      </div>
+      <div class="card">
+        <div class="muted">Setor</div>
+        <b>${s.sector}</b>
+      </div>
+      <div class="card">
+        <div class="muted">Máquina</div>
+        <b style="color:${s.machineLocked ? 'var(--danger)' : 'var(--success)'}">
+          ${s.machineLocked ? 'Bloqueada' : 'Liberada'}
+        </b>
+      </div>
+    `;
+
+    const video = document.getElementById("camVideo");
+    const placeholder = document.getElementById("camPlaceholder");
+
+    // Gerenciamento e Escuta de Eventos da Imagem de Stream
+    if (playing && s.epiStatus !== 'offline') {
+      if (video.src !== targetStream) {
+        video.src = targetStream;
+      }
+
+      video.onload = () => {
+        if (!playing) return;
+        video.style.display = "block";
+        placeholder.style.display = "none";
+        document.getElementById("conn").textContent = "● Conectado";
+        document.getElementById("conn").style.color = "var(--success)";
+      };
+
+      video.onerror = () => {
+        video.style.display = "none";
+        placeholder.style.display = "flex";
+        document.getElementById("conn").textContent = "● Backend Offline";
+        document.getElementById("conn").style.color = "var(--danger)";
+      };
+    } else {
+      video.style.display = "none";
+      placeholder.style.display = "flex";
+      if (s.epiStatus === 'offline') {
+        document.getElementById("conn").textContent = "● Câmera Offline (Manutenção)";
+        document.getElementById("conn").style.color = "var(--danger)";
+      }
+    }
+  }
+
+  // REGRAS DE FILTRO INTERNO DA TABELA E RENDERIZAÇÃO GERAL DA UI
+  function updateUI() {
+    const stations = GlobalCache.stations;
+    const events = GlobalCache.events;
+
+    // Popula o select de Setores dinamicamente caso esteja vazio
+    const sectorFilterSel = document.getElementById("sectorFilter");
+    if (sectorFilterSel.options.length <= 1) {
+      const sectors = [...new Set(stations.map(s => s.sector))];
+      sectors.forEach(s => sectorFilterSel.add(new Option(s, s)));
+    }
+
+    // Popula o seletor principal de Câmeras no topo do card caso esteja vazio
+    const camSelect = document.getElementById("camSelect");
+    if (!camSelect.options.length) {
+      stations.forEach(s => {
+        camSelect.add(new Option(`${s.name} — ${s.sector}`, s.id));
+      });
+      camSelect.onchange = () => {
+        currentCamId = camSelect.value;
+        renderSelectedCamera();
+      };
+      if (stations[0]) currentCamId = stations[0].id;
+    }
+
+    renderSelectedCamera();
+
+    // Captura os valores ativos nos inputs de filtragem da tela
+    const q = (document.getElementById("searchInput").value || "").toLowerCase();
+    const fs = document.getElementById("sectorFilter").value;
+    const fst = document.getElementById("statusFilter").value;
+
+    const filteredRows = stations.filter(s =>
+      (!q || s.name.toLowerCase().includes(q)) &&
+      (!fs || s.sector === fs) &&
+      (!fst || s.epiStatus === fst)
+    );
+
+    // Injeta as linhas atualizadas na tabela de gerenciamento
+    document.getElementById("stTable").innerHTML = filteredRows.map(s => `
+      <tr>
+        <td>
+          <b>${s.name}</b>
+          <div class="muted" style="font-size:11px">${s.location}</div>
+        </td>
+        <td>${s.sector}</td>
+        <td>${s.employeeName || "—"}</td>
+        <td>${getLocalBadge(s.epiStatus)}</td>
+        <td>${(s.aiConfidence * 100).toFixed(0)}%</td>
+        <td style="color:${s.machineLocked ? 'var(--danger)' : 'var(--success)'}">
+          ${s.machineLocked ? 'Bloqueada' : 'Liberada'}
+        </td>
+      </tr>
+    `).join("") || `<tr><td colspan="6" class="muted" style="text-align:center; padding:24px">Nenhuma estação encontrada</td></tr>`;
+
+    // Injeta os logs de eventos em tempo real na caixa inferior da aplicação
+    document.getElementById("eventList").innerHTML = events.slice(0, 30).map(e => {
+      const cls = (e.type === "alert_triggered" || e.type === "machine_locked") ? "violation" : (e.type === "safe_pause" ? "paused" : "compliant");
+      
+      // Tratamento seguro para exibição de horários formatados
+      let displayTime = "--:--:--";
+      if (e.timestamp) {
+        displayTime = e.timestamp.includes(' ') ? e.timestamp.split(' ')[1] : e.timestamp;
+      }
+
+      return `
+        <div style="display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border)">
+          <span class="badge ${cls}"><span class="dot"></span></span>
+          <div style="flex:1">
+            <div><b>Estação ID: ${e.stationId}</b> · <span class="muted">${e.employeeName || "Operador"}</span></div>
+            <div style="font-size:12px">
+              ${e.message}
+              ${e.confidence ? `<span class="muted">(${(e.confidence * 100).toFixed(0)}%)</span>` : ""}
+            </div>
+          </div>
+          <div class="muted" style="font-size:11px; font-family:monospace">${displayTime}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // FUNÇÃO CENTRAL DE CONEXÃO COM O BACKEND PHP (AJAX FETCH)
+  async function loadRealtimeData() {
+    try {
+      const res = await fetch('../backend/monitoramento_api.php');
+      if (!res.ok) throw new Error("Erro de resposta da API PHP");
+      const databaseData = await res.json();
+      
+      GlobalCache.stations = databaseData.stations || [];
+      GlobalCache.events = databaseData.events || [];
+      
+      updateUI();
+    } catch(err) {
+      console.error("Falha ao sincronizar com banco de dados: ", err);
+      document.getElementById("conn").textContent = "● Erro de Sincronismo";
+      document.getElementById("conn").style.color = "var(--danger)";
+    }
+  }
+
+  // CONTROLES INTERATIVOS DA INTERFACE (REFRESH, FULLSCREEN, PLAY/PAUSE)
+  document.getElementById("btnRefresh").onclick = () => {
+    document.getElementById("conn").textContent = "● Conectando…";
+    document.getElementById("conn").style.color = "var(--muted)";
+    loadRealtimeData();
+  };
+
+  document.getElementById("btnFs").onclick = () => {
+    document.getElementById("cameraBox").requestFullscreen?.();
+  };
+
+  document.getElementById("btnPlay").onclick = (e) => {
+    playing = !playing;
+    e.target.textContent = playing ? "⏸" : "▶";
+    renderSelectedCamera();
+  };
+
+  // Escuta os inputs de filtros para atualizar a tabela em tempo real enquanto digita
+  ["searchInput", "sectorFilter", "statusFilter"].forEach(id =>
+    document.getElementById(id).addEventListener("input", updateUI)
+  );
+
+  // Execução e Inicialização em Loop Automático (Consulta a cada 3 segundos)
+  loadRealtimeData();
+  setInterval(loadRealtimeData, 3000);
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Login — Securi&Tech EPI Guardian</title>
+<link rel="stylesheet" href="css/styles.css"/>
+</head>
+<body>
+<div class="login">
+  <div class="card">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:48px"></div>
+      <h1>Securi&<span style="color:var(--primary)">Tech</span></h1>
+      <div class="sub">EPI Guardian · Login do operador/supervisor</div>
+    </div>
+    <form id="loginForm">
+      <div class="field"><label>Matrícula / RFID</label><input id="matricula" placeholder="ex.: 20001" required/></div>
+      <div class="field"><label>Senha</label><input id="password" type="password" placeholder="••••••" required/></div>
+      <button class="btn primary" style="width:100%;justify-content:center" type="submit">Entrar</button>
+      <p class="muted" style="font-size:12px;margin-top:14px;text-align:center">
+        Supervisor: <b>20001</b> · Operador: <b>10234</b><br/>(qualquer senha)
+      </p>
+    </form>
+  </div>
+</div>
+<script src="js/mock-data.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script>
+if (AUTH.user) location.href = AUTH.user.role === "supervisor" ? "dashboard.html" : "operador.html";
+document.getElementById("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const u = await AUTH.login(matricula.value, password.value);
+    location.href = u.role === "supervisor" ? "dashboard.html" : "operador.html";
+  } catch (err) { toast("Falha no login", err.message, "error"); }
+});
+</script>
+</body>
+</html>

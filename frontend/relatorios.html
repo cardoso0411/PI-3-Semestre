@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Relatórios — EPI Guardian</title>
+
+    <link rel="stylesheet" href="css/styles.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+    <div data-layout="supervisor" data-active="relatorios"></div>
+
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+
+    <script>
+    const API_URL = "http://localhost/PI-3S/backend/relatorios_api.php";
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        const root = document.getElementById("page-content");
+        if (!root) return;
+
+        root.innerHTML = `
+<div class="flex-between">
+    <h2>Relatórios</h2>
+    <button class="btn primary" id="btnExport">Exportar CSV</button>
+</div>
+
+<div class="grid cols-2">
+    <div class="card">
+        <h3>Conformidade (7 dias)</h3>
+        <div style="height: 260px;">
+            <canvas id="chart1"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Violações por operador</h3>
+        <div style="height: 260px;">
+            <canvas id="chart2"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Histórico de eventos (últimos 50)</h3>
+    <div style="max-height: 420px; overflow-y: auto;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Data/Hora</th>
+                    <th>Estação</th>
+                    <th>Operador</th>
+                    <th>Tipo</th>
+                    <th>Mensagem</th>
+                </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+        </table>
+    </div>
+</div>`;
+        
+        // === Gráfico 1 - Conformidade ===
+        const trend = await fetch(`${API_URL}?action=trend`).then(r => r.json());
+
+        new Chart(document.getElementById("chart1"), {
+            type: "line",
+            data: {
+                labels: trend.map(t => t.day),
+                datasets: [
+                    {
+                        label: "Conformidade %",
+                        data: trend.map(t => t.conformidade),
+                        borderColor: "#22c55e",
+                        backgroundColor: "rgba(34,197,94,0.15)",
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: "Violações",
+                        data: trend.map(t => t.violacoes),
+                        borderColor: "#ef4444",
+                        backgroundColor: "rgba(239,68,68,0.15)",
+                        fill: true,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } }
+            }
+        });
+
+        // === Gráfico 2 - Violações por operador ===
+        const viols = await fetch(`${API_URL}?action=violationsByEmployee`).then(r => r.json());
+
+        new Chart(document.getElementById("chart2"), {
+            type: "bar",
+            data: {
+                labels: viols.map(v => v.name),
+                datasets: [{
+                    label: "Violações",
+                    data: viols.map(v => v.violacoes),
+                    backgroundColor: "#ef4444"
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } }
+            }
+        });
+
+        // === Tabela - Histórico (limitado) ===
+        const events = await fetch(`${API_URL}?action=events`).then(r => r.json());
+
+        // Mostra apenas os 50 mais recentes
+        const recentEvents = events.slice(0, 50);
+
+        document.getElementById("rows").innerHTML = recentEvents.map(e => `
+            <tr>
+                <td>${new Date(e.timestamp).toLocaleString('pt-BR')}</td>
+                <td>${e.station || "-"}</td>
+                <td>${e.employee || "-"}</td>
+                <td>${e.type}</td>
+                <td>${e.message}</td>
+            </tr>
+        `).join("");
+
+        // Exportar CSV (todos os eventos)
+        document.getElementById("btnExport").onclick = () => {
+            const csv = [
+                "data,estacao,operador,tipo,mensagem",
+                ...events.map(e => 
+                    `${e.timestamp},${e.station || ""},${e.employee || ""},${e.type},${e.message}`
+                )
+            ].join("\n");
+
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `relatorio_epi_${new Date().toISOString().slice(0,10)}.csv`;
+            a.click();
+        };
+    });
+    </script>
+
+</body>
+</html>

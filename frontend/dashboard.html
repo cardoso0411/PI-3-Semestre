@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Dashboard — EPI Guardian</title>
+    <link rel="stylesheet" href="css/styles.css"/>
+</head>
+<body>
+
+    <div data-layout="supervisor" data-active="dashboard"></div>
+
+    <script src="js/auth.js"></script>
+    <script src="js/layout.js"></script>
+
+    <script>
+    // Substitua a função antiga por esta no seu dashboard.html
+    async function reactivateMachine(idCam) {
+        if (!confirm(`Deseja realmente reativar a máquina da estação (Câmera ID: ${idCam})?`)) {
+            return;
+        }
+
+        try {
+            // Envia uma requisição POST com o ID da câmera para o backend
+            const res = await fetch('../backend/reativar_api.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ id_cam: idCam })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                alert('Máquina autorizada e reativada com sucesso!');
+                // Força o dashboard a se atualizar imediatamente sem esperar os 5 segundos
+                location.reload(); 
+            } else {
+                alert('Erro ao tentar reativar: ' + data.message);
+            }
+        } catch (e) {
+            console.error("Erro na comunicação:", e);
+            alert('Não foi possível conectar ao servidor para reativar a máquina.');
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        const root = document.getElementById("page-content");
+        if (!root) return;
+
+        root.innerHTML = `
+            <div class="grid cols-4" id="metrics"></div>
+            
+            <div class="card">
+                <div class="flex-between" style="margin-bottom:12px">
+                    <h3>Estações em Tempo Real</h3>
+                    <span class="muted" id="updated">Atualizando...</span>
+                </div>
+                <div class="grid cols-3" id="stations"></div>
+            </div>
+        `;
+
+        async function loadDashboard() {
+            try {
+                const res = await fetch('../backend/dashboard_api.php');
+                if (!res.ok) throw new Error('Erro na API');
+                
+                const data = await res.json();
+
+                // Atualiza Métricas vindas sincronizadas do backend
+                document.getElementById("metrics").innerHTML = `
+                    <div class="card metric">
+                        <div class="label">Conformes</div>
+                        <div class="value" style="color:var(--success)">${data.metrics.compliant}</div>
+                    </div>
+                    <div class="card metric">
+                        <div class="label">Violações</div>
+                        <div class="value" style="color:var(--danger)">${data.metrics.violations}</div>
+                    </div>
+                    <div class="card metric">
+                        <div class="label">Em Pausa</div>
+                        <div class="value" style="color:var(--warning)">${data.metrics.paused}</div>
+                    </div>
+                    <div class="card metric">
+                        <div class="label">Offline</div>
+                        <div class="value" style="color:var(--muted)">${data.metrics.offline}</div>
+                    </div>
+                `;
+
+                // Atualiza Estações e insere o botão condicional de Reativar
+                const stationsHTML = data.stations.map(s => `
+                    <div class="card" style="display:flex; flex-direction:column; justify-content:between;">
+                        <div>
+                            <div class="flex-between">
+                                <b>${s.name}</b>
+                                <span class="badge ${s.status}">${s.statusText}</span>
+                            </div>
+                            <div class="muted" style="margin:6px 0 8px">${s.location}</div>
+                            <div class="row"><span class="muted">Operador:</span> ${s.employee}</div>
+                            <div class="row"><span class="muted">Operação:</span> ${s.operationTime} min</div>
+                        </div>
+                        
+                        ${s.status === 'violation' ? `
+                            <button onclick="reactivateMachine(${s.id_cam})" style="margin-top:12px; width:100%; padding:8px; background-color:var(--success); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">
+                                Reativar Máquina
+                            </button>
+                        ` : ''}
+                    </div>
+                `).join("");
+
+                document.getElementById("stations").innerHTML = stationsHTML;
+                document.getElementById("updated").textContent = "Atualizado agora • " + new Date().toLocaleTimeString('pt-BR');
+
+            } catch (e) {
+                console.error("Erro ao carregar dashboard:", e);
+                document.getElementById("updated").textContent = "Erro ao atualizar";
+            }
+        }
+
+        loadDashboard();
+        setInterval(loadDashboard, 5000); // Atualiza a cada 5 segundos
+    });
+    </script>
+</body>
+</html>
